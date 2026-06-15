@@ -2,16 +2,12 @@
   "name": "our-memories",
   "version": "1.0.0",
   "scripts": {
-    "dev": "vite",
-    "build": "npx vite build",
-    "preview": "vite preview"
+    "build": "react-scripts build",
+    "start": "react-scripts start"
   },
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "@vitejs/plugin-react": "^4.0.0"
-  },
-  "devDependencies": {
-    "vite": "^5.0.0"
+    "react-scripts": "5.0.1"
   }
 }
