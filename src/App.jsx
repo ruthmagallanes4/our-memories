@@ -96,9 +96,9 @@ export default function App() {
     setUploading(true);
     const ext = uploadFile.name.split(".").pop();
     const filename = `${Date.now()}.${ext}`;
-    const { error: upErr } = await supabase.storage.from("photos").upload(filename, uploadFile);
+    const { error: upErr } = await supabase.storage.from("our-memories").upload(filename, uploadFile);
     if (upErr) { alert("Upload failed: " + upErr.message); setUploading(false); return; }
-    const { data: { publicUrl } } = supabase.storage.from("photos").getPublicUrl(filename);
+    const { data: { publicUrl } } = supabase.storage.from("our-memories").getPublicUrl(filename);
     const { data } = await supabase.from("photos").insert({ url: publicUrl, caption: uploadForm.caption, place_id: uploadForm.place_id }).select("*, places(name)").single();
     if (data) setPhotos(p => [data, ...p]);
     setShowUpload(false);
