@@ -182,7 +182,7 @@ export default function App() {
       </div>
 
       {/* Pinterest Grid */}
-      <div style={{ padding: "1.5rem", columns: "2 160px", gap: "0.75rem" }}>
+      <div style={{ padding: "1.5rem", columnWidth: "190px", columnGap: "0.75rem", maxWidth: 1400, margin: "0 auto" }}>
         {filtered.length === 0 && (
           <div style={{ textAlign: "center", padding: "3rem", color: Y[600], fontSize: 15 }}>
             No memories here yet — add your first one! 🌼
