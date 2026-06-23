@@ -8,14 +8,11 @@
   "dependencies": {
     "@heyputer/puter.js": "^2.5.3",
     "@supabase/supabase-js": "^2.108.2",
-    "leaflet": "^1.9.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-leaflet": "^5.0.0",
     "react-scripts": "5.0.1"
   },
-
   "overrides": {
-  "webpack-dev-server": "4.15.1"
-}
+    "webpack-dev-server": "4.15.1"
+  }
 }

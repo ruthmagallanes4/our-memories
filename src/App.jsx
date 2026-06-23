@@ -1,16 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
-
-// Fix for default marker icons breaking under bundlers like Vite/CRA
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-});
 
 const supabase = createClient(
   "https://elazbfrcbqdbjugxwpho.supabase.co",
@@ -30,6 +19,11 @@ const iconBtn = {
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function osmEmbedUrl(lat, lon) {
+  const d = 0.15;
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${lon-d},${lat-d},${lon+d},${lat+d}&layer=mapnik&marker=${lat},${lon}`;
 }
 
 export default function App() {
@@ -62,6 +56,7 @@ export default function App() {
   const [memoryLaneIndex, setMemoryLaneIndex] = useState(0);
 
   const [showMap, setShowMap] = useState(false);
+  const [mapPlace, setMapPlace] = useState(null);
 
   const fileRef = useRef();
 
@@ -92,17 +87,12 @@ export default function App() {
     setComments(data || []);
   }
 
-  // Geocoding (for map pins) — free OpenStreetMap lookup, no API key needed
   async function geocodePlace(name) {
     try {
       const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(name + ", Philippines")}`);
       const data = await res.json();
-      if (data && data[0]) {
-        return { latitude: parseFloat(data[0].lat), longitude: parseFloat(data[0].lon) };
-      }
-    } catch (e) {
-      console.error("Geocode failed", e);
-    }
+      if (data && data[0]) return { latitude: parseFloat(data[0].lat), longitude: parseFloat(data[0].lon) };
+    } catch (e) { console.error("Geocode failed", e); }
     return null;
   }
 
@@ -114,7 +104,7 @@ export default function App() {
           await supabase.from("places").update(coords).eq("id", place.id);
           setPlaces(prev => prev.map(pl => pl.id === place.id ? { ...pl, ...coords } : pl));
         }
-        await new Promise(r => setTimeout(r, 1100)); // be gentle with the free geocoder
+        await new Promise(r => setTimeout(r, 1100));
       }
     }
   }
@@ -131,14 +121,6 @@ export default function App() {
     const d = new Date(p.memory_date);
     return d.getMonth() === today.getMonth() && d.getDate() === today.getDate() && d.getFullYear() !== today.getFullYear();
   });
-
-  const placesWithCoords = places.filter(p => p.latitude != null && p.longitude != null);
-  const mapCenter = placesWithCoords.length
-    ? [
-        placesWithCoords.reduce((s, p) => s + p.latitude, 0) / placesWithCoords.length,
-        placesWithCoords.reduce((s, p) => s + p.longitude, 0) / placesWithCoords.length
-      ]
-    : [12.8797, 121.7740];
 
   // Places
   async function addPlace() {
@@ -176,7 +158,7 @@ export default function App() {
   // Photos
   function handleFiles(e) {
     const fileList = Array.from(e.target.files || []);
-    if (fileList.length === 0) return;
+    if (!fileList.length) return;
     setUploadFiles(fileList);
     setPreviewUrls(fileList.map(f => URL.createObjectURL(f)));
   }
@@ -187,7 +169,7 @@ export default function App() {
   }
 
   async function handleAddPhoto() {
-    if (uploadFiles.length === 0 || !uploadForm.place_id) return;
+    if (!uploadFiles.length || !uploadForm.place_id) return;
     setUploading(true);
     const inserted = [];
     for (let i = 0; i < uploadFiles.length; i++) {
@@ -199,20 +181,16 @@ export default function App() {
       if (upErr) { alert("Upload failed: " + upErr.message); continue; }
       const { data: { publicUrl } } = supabase.storage.from("our-memories").getPublicUrl(filename);
       const { data } = await supabase.from("photos").insert({
-        url: publicUrl,
-        caption: uploadForm.caption,
-        place_id: uploadForm.place_id,
-        memory_date: uploadForm.memory_date
+        url: publicUrl, caption: uploadForm.caption,
+        place_id: uploadForm.place_id, memory_date: uploadForm.memory_date
       }).select("*, places(name)").single();
       if (data) inserted.push(data);
     }
     if (inserted.length) setPhotos(p => [...inserted, ...p]);
     setShowUpload(false);
-    setUploadFiles([]);
-    setPreviewUrls([]);
+    setUploadFiles([]); setPreviewUrls([]);
     setUploadForm({ caption: "", place_id: "", memory_date: todayISO() });
-    setUploading(false);
-    setUploadProgress("");
+    setUploading(false); setUploadProgress("");
   }
 
   async function deletePhoto(id) {
@@ -259,18 +237,21 @@ export default function App() {
   }
 
   function openMemoryLane() {
-    if (filtered.length === 0) return;
+    if (!filtered.length) return;
     setMemoryLaneList(filtered);
     setMemoryLaneIndex(0);
     setShowMemoryLane(true);
   }
-  function closeMemoryLane() { setShowMemoryLane(false); }
-  function nextSlide() { setMemoryLaneIndex(i => (i + 1) % memoryLaneList.length); }
-  function prevSlide() { setMemoryLaneIndex(i => (i - 1 + memoryLaneList.length) % memoryLaneList.length); }
 
   function surpriseMe() {
-    if (photos.length === 0) return;
+    if (!photos.length) return;
     openPhoto(photos[Math.floor(Math.random() * photos.length)]);
+  }
+
+  function openMap() {
+    const first = places.find(p => p.latitude != null);
+    setMapPlace(first || null);
+    setShowMap(true);
   }
 
   if (loading) return (
@@ -292,8 +273,8 @@ export default function App() {
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button title="Surprise me" onClick={surpriseMe} style={iconBtn}>🎲</button>
-            <button title="Memory Lane" onClick={openMemoryLane} style={iconBtn}>▶️</button>
-            <button title="Map view" onClick={() => setShowMap(true)} style={iconBtn}>📍</button>
+            <button title="Memory Lane slideshow" onClick={openMemoryLane} style={iconBtn}>▶️</button>
+            <button title="Map view" onClick={openMap} style={iconBtn}>📍</button>
             <button onClick={() => { setShowUpload(true); setUploadForm({ caption: "", place_id: places[0]?.id || "", memory_date: todayISO() }); setPreviewUrls([]); setUploadFiles([]); }}
               style={{ background: Y[400], border: "none", borderRadius: 999, padding: "8px 18px", fontWeight: 500, fontSize: 14, color: Y[900], cursor: "pointer" }}>
               + Add memory
@@ -350,7 +331,7 @@ export default function App() {
                 {photo.caption && <p style={{ margin: "0 0 4px", fontSize: 12, color: "#444", lineHeight: 1.4 }}>{photo.caption}</p>}
                 {photo.places?.name && <span style={{ fontSize: 10, background: Y[100], color: Y[700], borderRadius: 99, padding: "2px 8px" }}>{photo.places.name}</span>}
               </div>
-              <button onClick={(e) => toggleLike(photo, e)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: Y[700], display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
+              <button onClick={e => toggleLike(photo, e)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: Y[700], display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
                 ❤️ {photo.likes > 0 ? photo.likes : ""}
               </button>
             </div>
@@ -364,7 +345,6 @@ export default function App() {
           <div style={{ background: "#fff", borderRadius: 20, width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", border: `2px solid ${Y[200]}` }}>
             <img src={selectedPhoto.url} alt={selectedPhoto.caption} style={{ width: "100%", display: "block", borderRadius: "18px 18px 0 0", objectFit: "cover", maxHeight: 320 }} />
             <div style={{ padding: "1rem 1.25rem 1.25rem" }}>
-              {/* Caption */}
               {editingCaption ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: "1rem" }}>
                   <input value={editPhotoCaption} onChange={e => setEditPhotoCaption(e.target.value)}
@@ -384,14 +364,12 @@ export default function App() {
                     {selectedPhoto.memory_date && <span style={{ fontSize: 11, color: Y[600], marginLeft: 8 }}>{new Date(selectedPhoto.memory_date).toLocaleDateString()}</span>}
                   </div>
                   <div style={{ display: "flex", gap: 4, flexShrink: 0, marginLeft: 8 }}>
-                    <button onClick={(e) => toggleLike(selectedPhoto, e)} style={{ background: Y[100], border: "none", borderRadius: 8, padding: "5px 10px", fontSize: 12, color: Y[700], cursor: "pointer" }}>❤️ {selectedPhoto.likes || 0}</button>
+                    <button onClick={e => toggleLike(selectedPhoto, e)} style={{ background: Y[100], border: "none", borderRadius: 8, padding: "5px 10px", fontSize: 12, color: Y[700], cursor: "pointer" }}>❤️ {selectedPhoto.likes || 0}</button>
                     <button onClick={() => setEditingCaption(true)} style={{ background: Y[100], border: "none", borderRadius: 8, padding: "5px 10px", fontSize: 12, color: Y[700], cursor: "pointer" }}>✏️ Edit</button>
                     <button onClick={() => deletePhoto(selectedPhoto.id)} style={{ background: "#fee2e2", border: "none", borderRadius: 8, padding: "5px 10px", fontSize: 12, color: "#b91c1c", cursor: "pointer" }}>🗑️</button>
                   </div>
                 </div>
               )}
-
-              {/* Comments */}
               <div style={{ borderTop: `1.5px solid ${Y[100]}`, paddingTop: "0.75rem" }}>
                 <p style={{ margin: "0 0 0.75rem", fontSize: 13, fontWeight: 500, color: Y[800] }}>💬 Comments</p>
                 {comments.length === 0 && <p style={{ fontSize: 13, color: Y[600], margin: "0 0 0.75rem" }}>No comments yet — be the first! 🌼</p>}
@@ -411,7 +389,6 @@ export default function App() {
                   <button onClick={addComment} style={{ background: Y[400], border: "none", borderRadius: 10, padding: "9px 16px", fontWeight: 500, fontSize: 14, color: Y[900], cursor: "pointer" }}>Post</button>
                 </div>
               </div>
-
               <button onClick={() => setSelectedPhoto(null)} style={{ marginTop: "1rem", width: "100%", background: Y[100], border: "none", borderRadius: 10, padding: "11px 0", fontSize: 14, color: Y[700], cursor: "pointer", fontWeight: 500 }}>
                 Close
               </button>
@@ -423,40 +400,49 @@ export default function App() {
       {/* Memory Lane Slideshow */}
       {showMemoryLane && memoryLaneList.length > 0 && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300 }}>
-          <button onClick={closeMemoryLane} style={{ position: "absolute", top: 20, right: 20, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: 999, width: 40, height: 40, color: "#fff", fontSize: 18, cursor: "pointer" }}>✕</button>
-          <button onClick={prevSlide} style={{ position: "absolute", left: 16, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: 999, width: 44, height: 44, color: "#fff", fontSize: 20, cursor: "pointer" }}>‹</button>
-          <button onClick={nextSlide} style={{ position: "absolute", right: 16, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: 999, width: 44, height: 44, color: "#fff", fontSize: 20, cursor: "pointer" }}>›</button>
+          <button onClick={() => setShowMemoryLane(false)} style={{ position: "absolute", top: 20, right: 20, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: 999, width: 40, height: 40, color: "#fff", fontSize: 18, cursor: "pointer" }}>✕</button>
+          <button onClick={() => setMemoryLaneIndex(i => (i - 1 + memoryLaneList.length) % memoryLaneList.length)} style={{ position: "absolute", left: 16, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: 999, width: 44, height: 44, color: "#fff", fontSize: 20, cursor: "pointer" }}>‹</button>
+          <button onClick={() => setMemoryLaneIndex(i => (i + 1) % memoryLaneList.length)} style={{ position: "absolute", right: 16, background: "rgba(255,255,255,0.15)", border: "none", borderRadius: 999, width: 44, height: 44, color: "#fff", fontSize: 20, cursor: "pointer" }}>›</button>
           <div style={{ maxWidth: "85vw", maxHeight: "80vh", textAlign: "center" }}>
             <img src={memoryLaneList[memoryLaneIndex].url} alt={memoryLaneList[memoryLaneIndex].caption} style={{ maxWidth: "100%", maxHeight: "70vh", borderRadius: 16, objectFit: "contain" }} />
             {memoryLaneList[memoryLaneIndex].caption && <p style={{ color: "#fff", marginTop: 16, fontSize: 15 }}>{memoryLaneList[memoryLaneIndex].caption}</p>}
             <p style={{ color: Y[200], fontSize: 13, marginTop: 4 }}>{memoryLaneList[memoryLaneIndex].places?.name}</p>
+            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, marginTop: 4 }}>{memoryLaneIndex + 1} / {memoryLaneList.length}</p>
           </div>
         </div>
       )}
 
-      {/* Map View */}
+      {/* Map Modal — iframe, no leaflet needed */}
       {showMap && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-          <div style={{ background: "#fff", borderRadius: 20, width: "100%", maxWidth: 700, height: "80vh", overflow: "hidden", border: `2px solid ${Y[200]}`, display: "flex", flexDirection: "column" }}>
-            <div style={{ padding: "12px 16px", borderBottom: `1.5px solid ${Y[100]}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <p style={{ margin: 0, fontSize: 16, fontWeight: 500, color: Y[800] }}>📍 Our places</p>
-              <button onClick={() => setShowMap(false)} style={{ background: Y[100], border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 13, color: Y[700], cursor: "pointer" }}>Close</button>
+          <div style={{ background: "#fff", borderRadius: 20, width: "100%", maxWidth: 700, height: "82vh", overflow: "hidden", border: `2px solid ${Y[200]}`, display: "flex", flexDirection: "column" }}>
+            <div style={{ padding: "12px 16px", borderBottom: `1.5px solid ${Y[100]}`, display: "flex", gap: 8, alignItems: "center", overflowX: "auto" }}>
+              {places.filter(p => p.latitude != null).map(p => (
+                <button key={p.id} onClick={() => setMapPlace(p)} style={{
+                  background: mapPlace?.id === p.id ? Y[400] : Y[100], border: "none", borderRadius: 999,
+                  padding: "6px 14px", fontSize: 13, color: Y[800], cursor: "pointer", whiteSpace: "nowrap", fontWeight: mapPlace?.id === p.id ? 600 : 400
+                }}>{p.name}</button>
+              ))}
+              <button onClick={() => setShowMap(false)} style={{ marginLeft: "auto", background: Y[100], border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 13, color: Y[700], cursor: "pointer", flexShrink: 0 }}>Close</button>
             </div>
-            <div style={{ flex: 1 }}>
-              <MapContainer center={mapCenter} zoom={placesWithCoords.length ? 7 : 6} style={{ height: "100%", width: "100%" }}>
-                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap contributors" />
-                {placesWithCoords.map(place => (
-                  <Marker key={place.id} position={[place.latitude, place.longitude]}>
-                    <Popup>
-                      <div style={{ textAlign: "center" }}>
-                        <strong>{place.name}</strong>
-                        <p style={{ margin: "4px 0" }}>{photos.filter(p => p.place_id === place.id).length} memories</p>
-                        <button onClick={() => { setActiveTab(place.name); setShowMap(false); }} style={{ background: Y[400], border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer" }}>View</button>
-                      </div>
-                    </Popup>
-                  </Marker>
-                ))}
-              </MapContainer>
+            <div style={{ flex: 1, position: "relative" }}>
+              {mapPlace ? (
+                <>
+                  <iframe
+                    title={mapPlace.name}
+                    src={osmEmbedUrl(mapPlace.latitude, mapPlace.longitude)}
+                    style={{ width: "100%", height: "100%", border: "none" }}
+                  />
+                  <div style={{ position: "absolute", bottom: 12, left: 12, background: "rgba(255,255,255,0.9)", borderRadius: 10, padding: "6px 14px", fontSize: 13, fontWeight: 500, color: Y[800], boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}>
+                    📍 {mapPlace.name} · {photos.filter(ph => ph.place_id === mapPlace.id).length} memories
+                    <button onClick={() => { setActiveTab(mapPlace.name); setShowMap(false); }} style={{ marginLeft: 10, background: Y[400], border: "none", borderRadius: 6, padding: "3px 10px", fontSize: 12, cursor: "pointer", color: Y[900] }}>View</button>
+                  </div>
+                </>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: Y[600], fontSize: 14 }}>
+                  Select a place above to see it on the map 🗺️
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -480,7 +466,7 @@ export default function App() {
             <input type="file" accept="image/*" multiple ref={fileRef} onChange={handleFiles} style={{ display: "none" }} />
             <button onClick={() => fileRef.current.click()}
               style={{ width: "100%", padding: "10px", borderRadius: 10, border: `1.5px dashed ${Y[400]}`, background: Y[50], color: Y[700], cursor: "pointer", marginBottom: "0.75rem", fontSize: 14 }}>
-              {previewUrls.length ? `Change photos (${previewUrls.length} selected)` : "Upload photos"}
+              {previewUrls.length ? `${previewUrls.length} photo(s) selected — change?` : "Upload photos"}
             </button>
             <input placeholder="Add a caption..." value={uploadForm.caption} onChange={e => setUploadForm(f => ({ ...f, caption: e.target.value }))}
               style={{ width: "100%", borderRadius: 10, border: `1.5px solid ${Y[200]}`, padding: "10px 12px", fontSize: 14, marginBottom: "0.75rem", boxSizing: "border-box", background: Y[50], color: Y[800] }} />
@@ -490,14 +476,15 @@ export default function App() {
             {places.length > 0 ? (
               <select value={uploadForm.place_id} onChange={e => setUploadForm(f => ({ ...f, place_id: e.target.value }))}
                 style={{ width: "100%", borderRadius: 10, border: `1.5px solid ${Y[200]}`, padding: "10px 12px", fontSize: 14, marginBottom: "1rem", background: Y[50], color: Y[800] }}>
+                <option value="">Select a place...</option>
                 {places.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             ) : (
               <p style={{ fontSize: 13, color: Y[600], marginBottom: "1rem" }}>No places yet — add some via ✏️ Places first.</p>
             )}
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={handleAddPhoto} disabled={uploadFiles.length === 0 || !uploadForm.place_id || uploading}
-                style={{ flex: 1, background: Y[400], border: "none", borderRadius: 10, padding: "11px 0", fontWeight: 500, fontSize: 14, color: Y[900], cursor: "pointer", opacity: (uploadFiles.length === 0 || !uploadForm.place_id || uploading) ? 0.5 : 1 }}>
+              <button onClick={handleAddPhoto} disabled={!uploadFiles.length || !uploadForm.place_id || uploading}
+                style={{ flex: 1, background: Y[400], border: "none", borderRadius: 10, padding: "11px 0", fontWeight: 500, fontSize: 14, color: Y[900], cursor: "pointer", opacity: (!uploadFiles.length || !uploadForm.place_id || uploading) ? 0.5 : 1 }}>
                 {uploading ? `Saving ${uploadProgress}...` : "Save memory"}
               </button>
               <button onClick={() => setShowUpload(false)} style={{ flex: 1, background: Y[100], border: "none", borderRadius: 10, padding: "11px 0", fontSize: 14, color: Y[700], cursor: "pointer" }}>Cancel</button>
@@ -518,8 +505,7 @@ export default function App() {
                   {editingPlace?.id === place.id ? (
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                       <input value={editPlaceVal} onChange={e => setEditPlaceVal(e.target.value)}
-                        onKeyDown={e => e.key === "Enter" && renamePlace()}
-                        autoFocus
+                        onKeyDown={e => e.key === "Enter" && renamePlace()} autoFocus
                         style={{ width: "100%", borderRadius: 8, border: `1.5px solid ${Y[400]}`, padding: "8px 10px", fontSize: 14, background: "#fff", color: Y[800], boxSizing: "border-box" }} />
                       <div style={{ display: "flex", gap: 6 }}>
                         <button onClick={renamePlace} style={{ flex: 1, background: Y[400], border: "none", borderRadius: 8, padding: "7px 0", fontSize: 13, fontWeight: 500, color: Y[900], cursor: "pointer" }}>Save name</button>
